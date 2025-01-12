@@ -1,0 +1,17 @@
+# Imagem base
+FROM python:3.9-slim
+
+# Diretório de trabalho
+WORKDIR /app
+
+# Copiar o código da aplicação
+COPY app.py .
+
+# Instalar dependências
+RUN pip install flask
+
+# Expor a porta 80
+EXPOSE 80
+
+# Comando para rodar a aplicação
+CMD ["python", "app.py"]

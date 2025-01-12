@@ -1,0 +1,54 @@
+version: 0.2
+
+env:
+  variables:
+    ECR_REPOSITORY: cld34-devops-repo  # Nome do repositório no ECR
+    IMAGE_TAG: latest  # Pode ser atualizado para usar algo dinâmico
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.x
+    commands:
+      - echo "Instalando dependências..."
+      - apt-get update && apt-get install -y unzip
+      - curl -o terraform.zip https://releases.hashicorp.com/terraform/1.5.6/terraform_1.5.6_linux_amd64.zip
+      - unzip terraform.zip
+      - mv terraform /usr/local/bin/
+      - terraform version
+      - pip install --upgrade pip
+  pre_build:
+    commands:
+      - echo "Fazendo login no Amazon ECR..."
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin 185983175555.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - echo "Definindo ECR_REPOSITORY_URI..."
+      - export ECR_REPOSITORY_URI=185983175555.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY
+      - echo "ECR_REPOSITORY_URI= $ECR_REPOSITORY_URI"
+      - echo "Preparando Terraform..."
+      - cd infra
+      - terraform init -backend-config="bucket=cld34-terraform-state-bucket" -backend-config="key=envs/dev/terraform.tfstate" -backend-config="region=us-east-1" -backend-config="dynamodb_table=terraform-lock-table"
+      - terraform validate
+  build:
+    commands:
+      - echo "Executando Terraform apply..."
+      - terraform apply -auto-approve
+      - echo "Construindo a imagem Docker..."
+      - cd ../app
+      - docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
+      - echo "Tagueando a imagem Docker..."
+      - docker tag $ECR_REPOSITORY:$IMAGE_TAG $ECR_REPOSITORY_URI:$IMAGE_TAG
+  post_build:
+    commands:
+      - echo "Fazendo push da imagem para o Amazon ECR..."
+      - docker push $ECR_REPOSITORY_URI:$IMAGE_TAG
+      - echo "Build e push da imagem concluídos com sucesso!"
+      - echo "Criando o arquivo imagedefinitions.json..."
+      - echo '[{"name":"app-container","imageUri":"'"$ECR_REPOSITORY_URI:$IMAGE_TAG"'"}]' > imagedefinitions.json
+      - echo "Arquivo imagedefinitions.json gerado com sucesso."
+
+artifacts:
+  files:
+    - infra/**/*
+    - app/**/*
+    - imagedefinitions.json
+  discard-paths: yes
